@@ -1,90 +1,93 @@
-# CircuitPython for Data Login trials
-# Attempting to avoid using CPX Library as that seems to screw some other stuff up
-# and this code may be converted to MicroPython anyway....
+# Feather M4 with external Featherwing Adalogger and sensor boards
 
-import time
-import board
-#import digitalio
-#import microcontroller
-import neopixel
-import random
+
+
+import board                            #Board Library
+import adafruit_lis3dh                  #accelerometer
+import time                             #time calculations
+import digitalio                        #Digital Input and Output for board
+import random                           #Used to create data for output if sensor not connected
+import neopixel                         #NeoPixel Ring 10 pixels on Playground
+import os
+import busio
+import adafruit_ssd1306
+import adafruit_sdcard
+import storage
+import adafruit_lsm9ds1
+import adafruit_bme280
+
 from digitalio import DigitalInOut, Direction, Pull
 
-RED = (50,0,0)
-GREEN = (0,50,0)
-BLACK = (0,0,0)
-BLUE = (0,0,50)
-YELLOW = (50,50,0)
+# Hardware I2C setup on CircuitPlayground Express for Accelerometer:
+i2c = busio.I2C(board.SCL, board.SDA)
+oled = adafruit_ssd1306.SSD1306_I2C(128, 32, i2c)
 
-pixels = neopixel.NeoPixel(board.NEOPIXEL, 10, brightness=0.5, auto_write=True)
-pixels[0] = RED
+# SD Card Setup
+spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
+cs = digitalio.DigitalInOut(board.D10)
+sdcard = adafruit_sdcard.SDCard(spi, cs)
+vfs = storage.VfsFat(sdcard)
+storage.mount(vfs, "/sd")
 
-filenum = DigitalInOut(board.D5)
-filenum.direction = Direction.INPUT
-filenum.pull = Pull.UP     #Pull.DOWN apparently means Open Switch = false
+# Accelerometer / Barometer Setup
+sensor = adafruit_lsm9ds1.LSM9DS1_I2C(i2c)
+sensor.accel_range = adafruit_lsm9ds1.ACCELRANGE_8G
+bme280 = adafruit_bme280.Adafruit_BME280_I2C(i2c)
 
-filewrite = DigitalInOut(board.D6)
-filewrite.direction = Direction.INPUT
-filewrite.pull = Pull.UP
-
-def file_name_change():                     #Function to increment FileName on buttonpress
-    global file_name
-
-    pixels[0] = YELLOW
-    time.sleep(1)
-    file_name = "a_" + str(int(time.monotonic()))
-
-file_name = "a_" + str(int(time.monotonic())) + ".txt"
-write_file = True
-
-
-try:
-    #with open(file_name, "a") as fp:
-        while True:
-
-            pixels[0] = YELLOW
-            x = random.random()     #In place of Acceleration
-            y = random.random()
-            z = random.random()
-            t = time.monotonic()
-
-            #fp.write('{:f},{:f},{:f},{:f} \n' .format(t, x, y, z))
-            #fp.flush()
-
-            if write_file:
-                print(file_name, t, x, y, z)
-                print(filenum.value, filewrite.value)
-
-                pixels[0] = GREEN   #Flash Green while writing in loop
-                time.sleep(0.5)
-                pixels[0] = BLACK
-                time.sleep(0.5)
-            else:
-                pixels[0] = BLUE    #Flash Yellow while writing in loop
-                time.sleep(0.5)
-                pixels[0] = BLACK
-                time.sleep(0.5)
+#Define and Set up 3 Buttons on OLED display
+button1 = DigitalInOut(board.D9)
+button1.direction = Direction.INPUT
+button1.pull = Pull.UP
+button2 = DigitalInOut(board.D6)
+button2.direction = Direction.INPUT
+button2.pull = Pull.UP
+button3 = DigitalInOut(board.D5)
+button3.direction = Direction.INPUT
+button3.pull = Pull.UP
 
 
-            if not filenum.value:        #If D5 Closed, increment file number
-                pixels[0] = YELLOW
-                #fp.flush()
-                file_name_change()
-                time.sleep(2)
+# int1 = digitalio.DigitalInOut(board.ACCELEROMETER_INTERRUPT)
+# lis3dh = adafruit_lis3dh.LIS3DH_I2C(i2c, address=0x19, int1=int1)
+# lis3dh.range = adafruit_lis3dh.RANGE_8_G
 
-            if not filewrite.value:        #If D6 Closed, stop writing
-                pixels[0] = BLUE
-                #fp.flush()
-                write_file = not write_file
-                time.sleep(2)
+import neopixel
+led = neopixel.NeoPixel(board.NEOPIXEL, 1)
 
+led.brightness = 0.3
 
-except OSError as e:            #If Can't Write (read Only) then flash RED NeoPixel
-    delay = 0.5
-    if e.args[0] == 28:
-        delay = 0.25
-    while True:
-        pixels[0] = RED
-        time.sleep(delay/2)
-        pixels[0] = BLACK
-        time.sleep(delay/2)
+while True:
+    #Display text if Button Held Down 5,6,9
+    print(button1.value, button2.value, button3.value,"\n")
+    accel_x, accel_y, accel_z = sensor.acceleration
+    mag_x, mag_y, mag_z = sensor.magnetic
+    gyro_x, gyro_y, gyro_z = sensor.gyro
+    temp = sensor.temperature
+    altitude = bme280.altitude
+    print('Acceleration (m/s^2): ({0:0.3f},{1:0.3f},{2:0.3f})'.format(accel_x, accel_y, accel_z))
+    print('Magnetometer (gauss): ({0:0.3f},{1:0.3f},{2:0.3f})'.format(mag_x, mag_y, mag_z))
+    print('Gyroscope (degrees/sec): ({0:0.3f},{1:0.3f},{2:0.3f})'.format(gyro_x, gyro_y, gyro_z))
+    print('Temperature: {0:0.3f}C'.format(temp))
+    print('Altitude: {0:0.3f}m'.format(altitude))
+    
+    if not button1.value:
+        led[0] = (0, 255, 0)
+        oled.fill(0)
+        oled.text('Button 1 Pushed',0,0,1)
+        oled.show()
+        with open("/sd/test.txt", "w") as f:
+            f.write("Hello world!\r\n")
+    elif not button2.value:
+        led[0] = (255, 0, 0)
+        oled.fill(0)
+        oled.text('Button 2 Pushed',0,0,1)
+        oled.show()
+    elif not button3.value:
+        led[0] = (0, 0, 255)
+        oled.fill(0)
+        oled.text('Button 3 Pushed',0,0,1)
+        oled.show()
+    else:
+        led[0] = (255,255,0)
+        oled.fill(0)
+        oled.show()
+    
