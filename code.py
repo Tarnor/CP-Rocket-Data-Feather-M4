@@ -15,6 +15,7 @@ import adafruit_sdcard
 import storage
 import adafruit_lsm9ds1
 import adafruit_bme280
+import neopixel
 
 from digitalio import DigitalInOut, Direction, Pull
 
@@ -45,49 +46,96 @@ button3 = DigitalInOut(board.D5)
 button3.direction = Direction.INPUT
 button3.pull = Pull.UP
 
-
-# int1 = digitalio.DigitalInOut(board.ACCELEROMETER_INTERRUPT)
-# lis3dh = adafruit_lis3dh.LIS3DH_I2C(i2c, address=0x19, int1=int1)
-# lis3dh.range = adafruit_lis3dh.RANGE_8_G
-
-import neopixel
+#Set Up NeoPixel on Feather
 led = neopixel.NeoPixel(board.NEOPIXEL, 1)
-
 led.brightness = 0.3
 
+# Subroutines ========================================================================
+# Get a new Log Filename which is an increment of existing files in the directory
+def get_log_filename():
+    i=0
+    log_fn = "log" + str(int(i)) +".csv"
+    while log_fn in os.listdir("/sd"):
+        i +=1
+        log_fn = "log" + str(int(i)) +".csv"
+    return log_fn
+    
+def write_oled():
+    oled.fill(0)
+    if not logging_paused:
+        oled.text('Logging to file',0,0,1)
+        led[0] = (0, 255, 0)               #LED to GREEN
+    else:
+        oled.text('Logging PAUSED',0,0,1)
+        led[0] = (255, 255, 0)
+    oled.text(logfn,0,10,1)
+    oled.show()    
+
+def logphysics():
+    global logging_paused
+    while True:    
+        try:
+            with open("/sd/"+logfn,"a") as fp:
+                #Poll Sensors
+                accel_x, accel_y, accel_z = sensor.acceleration
+                mag_x, mag_y, mag_z = sensor.magnetic
+                gyro_x, gyro_y, gyro_z = sensor.gyro
+                temp = sensor.temperature
+                altitude = bme280.altitude
+                t = time.monotonic()
+
+                #time.sleep(0.25)
+
+                if not button1.value:       #Return Normal on Button Push
+                    fp.flush
+                    logging_paused = True
+                    write_oled()
+                    return -10
+
+                if not logging_paused:
+                    fp.write('{:f},{:f},{:f},{:f},{:f},{:f},{:f},{:f},{:f},{:f},{:f},{:f} \n' .format(t,accel_x,accel_y,accel_z, gyro_x,gyro_y,gyro_z, mag_x, mag_y, mag_z,temp,altitude))
+                    print(t)
+        except OSError as e:            #If Can't Write (read Only) then flash RED NeoPixel on PIXEL 1
+            #pixels[1] = WHITE
+            #if e.args[0] == 28:         #Error 28 flashes WHITE
+            #    pixels[0] = WHITE
+            print("ERROR WRITING FILE")
+            return -99
+            #else:                       #Can't write to storage, so print to serial
+            #    print("Can't write to File: " + log_fn)
+            #    print(log_fn + " " + '{:f},{:f},{:f},{:f}' .format(t, x, y, z))
+            #    print(buttonA.value, buttonB.value, switchA.value)
+            #    pixels[0] = RED
+            #    return -99
+
+
+# Main Routine ========================================================================
+
+# Run Once ===============
+
+
+logfn = get_log_filename()          #Get first unused filename spot
+led[0] = (255,255,0)                #Yellow LED to start
+logging_paused = True               #Start with Logging to SD Card Paused
+write_oled()
+time.sleep(1)                       #Hold for One Second
+
+#Main Loop ===============
 while True:
     #Display text if Button Held Down 5,6,9
-    print(button1.value, button2.value, button3.value,"\n")
-    accel_x, accel_y, accel_z = sensor.acceleration
-    mag_x, mag_y, mag_z = sensor.magnetic
-    gyro_x, gyro_y, gyro_z = sensor.gyro
-    temp = sensor.temperature
-    altitude = bme280.altitude
-    print('Acceleration (m/s^2): ({0:0.3f},{1:0.3f},{2:0.3f})'.format(accel_x, accel_y, accel_z))
-    print('Magnetometer (gauss): ({0:0.3f},{1:0.3f},{2:0.3f})'.format(mag_x, mag_y, mag_z))
-    print('Gyroscope (degrees/sec): ({0:0.3f},{1:0.3f},{2:0.3f})'.format(gyro_x, gyro_y, gyro_z))
-    print('Temperature: {0:0.3f}C'.format(temp))
-    print('Altitude: {0:0.3f}m'.format(altitude))
+    print(logging_paused, logfn, button1.value, button2.value, button3.value,"\n")
+    time.sleep(0.1)
     
-    if not button1.value:
-        led[0] = (0, 255, 0)
-        oled.fill(0)
-        oled.text('Button 1 Pushed',0,0,1)
-        oled.show()
-        with open("/sd/test.txt", "w") as f:
-            f.write("Hello world!\r\n")
-    elif not button2.value:
-        led[0] = (255, 0, 0)
-        oled.fill(0)
-        oled.text('Button 2 Pushed',0,0,1)
-        oled.show()
-    elif not button3.value:
-        led[0] = (0, 0, 255)
-        oled.fill(0)
-        oled.text('Button 3 Pushed',0,0,1)
-        oled.show()
-    else:
-        led[0] = (255,255,0)
-        oled.fill(0)
-        oled.show()
-    
+    if not button1.value:                       #If Button1 Pushed
+        logging_paused = not logging_paused
+        if logging_paused:
+            write_oled()
+        else:
+            write_oled()
+            returnphysics = logphysics()
+        time.sleep(0.15)
+    if not button2.value:                       #If Button2 Pushed
+        logging_paused = True
+        logfn = get_log_filename()          #Get first unused filename spot
+        write_oled()
+        time.sleep(0.15)
